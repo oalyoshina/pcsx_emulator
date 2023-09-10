@@ -1,63 +1,63 @@
+#include "pscx_common.h"
+#include "pscx_padmemcard.h"
+
+#include <algorithm>
 #include <cassert>
 #include <vector>
-#include <algorithm>
-
-#include "pscx_padmemcard.h"
-#include "pscx_common.h"
 
 // ********************** PadMemCard implementation **********************
 PadMemCard::PadMemCard() :
-	m_baudRateDivider(0x0),
-	m_mode(0x0),
-	m_transmissionEnabled(false),
-	m_select(false),
-	m_target(Target::TARGET_PAD_MEMCARD1),
-	m_interruptLevel(false),
-	m_dataSetReadySignal(false),
-	m_dsrInterrupt(false),
-	m_response(0xff),
-	m_rxNotEmpty(false),
-	m_pad1(Type::TYPE_DIGITAL),
-	m_pad2(Type::TYPE_DISCONNECTED),
-	m_busState(BusState::BUS_STATE_IDLE)
+    m_baudRateDivider(0x0),
+    m_mode(0x0),
+    m_transmissionEnabled(false),
+    m_select(false),
+    m_target(Target::TARGET_PAD_MEMCARD1),
+    m_interruptLevel(false),
+    m_dataSetReadySignal(false),
+    m_dsrInterrupt(false),
+    m_response(0xff),
+    m_rxNotEmpty(false),
+    m_pad1(Type::TYPE_DIGITAL),
+    m_pad2(Type::TYPE_DISCONNECTED),
+    m_busState(BusState::BUS_STATE_IDLE)
 {
 }
 
 template<typename T>
 void PadMemCard::store(TimeKeeper& timeKeeper, InterruptState& irqState, uint32_t offset, T value)
 {
-	sync(timeKeeper, irqState);
+    sync(timeKeeper, irqState);
 
-	switch (offset)
-	{
-	case 0:
-	{
-		assert(("Unhandled gamepad TX access", (std::is_same<T, uint8_t>::value)));
-		sendCommand(timeKeeper, static_cast<uint8_t>(value));
-		break;
-	}
-	case 8:
-	{
-		setMode(static_cast<uint8_t>(value));
-		break;
-	}
-	case 10:
-	{
-		// Byte access behaves like a halfword
-		assert(("Unhandled byte gamepad control access", (!std::is_same<T, uint8_t>::value)));
-		setControl(irqState, static_cast<uint16_t>(value));
-		break;
-	}
-	case 14:
-	{
-		m_baudRateDivider = static_cast<uint16_t>(value);
-		break;
-	}
-	default:
-	{
-		assert(("Unhandled write to gamepad register", false));
-	}
-	}
+    switch (offset)
+    {
+    case 0:
+    {
+        assert(("Unhandled gamepad TX access", (std::is_same<T, uint8_t>::value)));
+        sendCommand(timeKeeper, static_cast<uint8_t>(value));
+        break;
+    }
+    case 8:
+    {
+        setMode(static_cast<uint8_t>(value));
+        break;
+    }
+    case 10:
+    {
+        // Byte access behaves like a halfword
+        assert(("Unhandled byte gamepad control access", (!std::is_same<T, uint8_t>::value)));
+        setControl(irqState, static_cast<uint16_t>(value));
+        break;
+    }
+    case 14:
+    {
+        m_baudRateDivider = static_cast<uint16_t>(value);
+        break;
+    }
+    default:
+    {
+        assert(("Unhandled write to gamepad register", false));
+    }
+    }
 }
 
 template void PadMemCard::store<uint32_t>(TimeKeeper&, InterruptState&, uint32_t, uint32_t);
@@ -67,36 +67,36 @@ template void PadMemCard::store<uint8_t >(TimeKeeper&, InterruptState&, uint32_t
 template<typename T>
 T PadMemCard::load(TimeKeeper& timeKeeper, InterruptState& irqState, uint32_t offset)
 {
-	sync(timeKeeper, irqState);
+    sync(timeKeeper, irqState);
 
-	switch (offset)
-	{
-	case 0:
-	{
-		assert(("Unhandled gamepad TX access", (std::is_same<T, uint8_t>::value)));
-		uint32_t response = static_cast<uint32_t>(m_response);
-		m_rxNotEmpty = false;
-		m_response = 0xff;
-		return response;
-	}
-	case 4:
-	{
-		return getStat();
-	}
-	case 10:
-	{
-		return static_cast<uint32_t>(getControl());
-	}
-	case 14:
-	{
-		return static_cast<uint32_t>(m_baudRateDivider);
-	}
-	default:
-	{
-		assert(("Unhandled gamepad read", false));
-	}
-	}
-	return ~0;
+    switch (offset)
+    {
+    case 0:
+    {
+        assert(("Unhandled gamepad TX access", (std::is_same<T, uint8_t>::value)));
+        uint32_t response = static_cast<uint32_t>(m_response);
+        m_rxNotEmpty = false;
+        m_response = 0xff;
+        return response;
+    }
+    case 4:
+    {
+        return getStat();
+    }
+    case 10:
+    {
+        return static_cast<uint32_t>(getControl());
+    }
+    case 14:
+    {
+        return static_cast<uint32_t>(m_baudRateDivider);
+    }
+    default:
+    {
+        assert(("Unhandled gamepad read", false));
+    }
+    }
+    return ~0;
 }
 
 template uint32_t PadMemCard::load<uint32_t>(TimeKeeper&, InterruptState&, uint32_t);
@@ -105,214 +105,214 @@ template uint8_t  PadMemCard::load<uint8_t >(TimeKeeper&, InterruptState&, uint3
 
 void PadMemCard::sync(TimeKeeper& timeKeeper, InterruptState& irqState)
 {
-	Cycles delta = timeKeeper.sync(Peripheral::PERIPHERAL_GPU);
+    Cycles delta = timeKeeper.sync(Peripheral::PERIPHERAL_GPU);
 
-	switch (m_busState)
-	{
-	case BusState::BUS_STATE_IDLE:
-	{
-		timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
-		break;
-	}
-	case BusState::BUS_STATE_TRANSFER:
-	{
-		if (delta < m_helperBusTransfer.m_cyclesRemaining)
-		{
-			m_helperBusTransfer.m_cyclesRemaining -= delta;
-			if (m_dsrInterrupt)
-			{
-				timeKeeper.setNextSyncDelta(Peripheral::PERIPHERAL_PAD_MEMCARD, m_helperBusTransfer.m_cyclesRemaining);
-			}
-			else
-			{
-				timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
-			}
-		}
-		else
-		{
-			// We reached the end of the transfer
-			assert(("Gamepad RX while FIFO isn't empty", !m_rxNotEmpty));
+    switch (m_busState)
+    {
+    case BusState::BUS_STATE_IDLE:
+    {
+        timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
+        break;
+    }
+    case BusState::BUS_STATE_TRANSFER:
+    {
+        if (delta < m_helperBusTransfer.m_cyclesRemaining)
+        {
+            m_helperBusTransfer.m_cyclesRemaining -= delta;
+            if (m_dsrInterrupt)
+            {
+                timeKeeper.setNextSyncDelta(Peripheral::PERIPHERAL_PAD_MEMCARD, m_helperBusTransfer.m_cyclesRemaining);
+            }
+            else
+            {
+                timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
+            }
+        }
+        else
+        {
+            // We reached the end of the transfer
+            assert(("Gamepad RX while FIFO isn't empty", !m_rxNotEmpty));
 
-			m_response = m_helperBusTransfer.m_responseByte;
-			m_rxNotEmpty = true;
-			m_dataSetReadySignal = m_helperBusTransfer.m_dsrResponse;
+            m_response = m_helperBusTransfer.m_responseByte;
+            m_rxNotEmpty = true;
+            m_dataSetReadySignal = m_helperBusTransfer.m_dsrResponse;
 
-			if (m_dataSetReadySignal)
-			{
-				if (m_dsrInterrupt)
-				{
-					if (!m_interruptLevel)
-					{
-						// Rising edge of the interrupt
-						irqState.raiseAssert(Interrupt::INTERRUPT_PAD_MEMCARD);
-					}
-					m_interruptLevel = true;
-				}
+            if (m_dataSetReadySignal)
+            {
+                if (m_dsrInterrupt)
+                {
+                    if (!m_interruptLevel)
+                    {
+                        // Rising edge of the interrupt
+                        irqState.raiseAssert(Interrupt::INTERRUPT_PAD_MEMCARD);
+                    }
+                    m_interruptLevel = true;
+                }
 
-				// The DSR pulse is generated purely by the controller
-				// without any input from the console. Therefore the actual length of the pulse
-				// changes from controller to controller.
-				m_helperBusDsr.m_cyclesRemaining = 10;
-				m_busState = BusState::BUS_STATE_DSR;
-			}
-			else
-			{
-				// We're done with this transaction
-				m_busState = BusState::BUS_STATE_IDLE;
-			}
+                // The DSR pulse is generated purely by the controller
+                // without any input from the console. Therefore the actual length of the pulse
+                // changes from controller to controller.
+                m_helperBusDsr.m_cyclesRemaining = 10;
+                m_busState = BusState::BUS_STATE_DSR;
+            }
+            else
+            {
+                // We're done with this transaction
+                m_busState = BusState::BUS_STATE_IDLE;
+            }
 
-			timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
-		}
-		break;
-	}
-	case BusState::BUS_STATE_DSR:
-	{
-		if (delta < m_helperBusDsr.m_cyclesRemaining)
-		{
-			m_helperBusDsr.m_cyclesRemaining -= delta;
-		}
-		else
-		{
-			// DSR pulse is over, bus is idle
-			m_dataSetReadySignal = false;
-			m_busState = BusState::BUS_STATE_IDLE;
-		}
-		timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
-		break;
-	}
-	}
+            timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
+        }
+        break;
+    }
+    case BusState::BUS_STATE_DSR:
+    {
+        if (delta < m_helperBusDsr.m_cyclesRemaining)
+        {
+            m_helperBusDsr.m_cyclesRemaining -= delta;
+        }
+        else
+        {
+            // DSR pulse is over, bus is idle
+            m_dataSetReadySignal = false;
+            m_busState = BusState::BUS_STATE_IDLE;
+        }
+        timeKeeper.noSyncNeeded(Peripheral::PERIPHERAL_PAD_MEMCARD);
+        break;
+    }
+    }
 }
 
 std::vector<Profile*> PadMemCard::getPadProfiles() const
 {
-	std::vector<Profile*> padProfiles{ m_pad1.getProfile(), m_pad2.getProfile() };
-	return padProfiles;
+    std::vector<Profile*> padProfiles{ m_pad1.getProfile(), m_pad2.getProfile() };
+    return padProfiles;
 }
 
 void PadMemCard::sendCommand(TimeKeeper& timeKeeper, uint8_t cmd)
 {
-	// It should be stored in the FIFO and sent when transmissionEnabled is set.
-	assert(("Unhandled gamepad command while transmissionEnabled is disabled", m_transmissionEnabled));
+    // It should be stored in the FIFO and sent when transmissionEnabled is set.
+    assert(("Unhandled gamepad command while transmissionEnabled is disabled", m_transmissionEnabled));
 
-	if (m_busState != BusState::BUS_STATE_IDLE)
-	{
-		LOG("Gamepad command 0x" << std::hex << cmd << "while bus is busy!");
-	}
+    if (m_busState != BusState::BUS_STATE_IDLE)
+    {
+        LOG("Gamepad command 0x" << std::hex << cmd << "while bus is busy!");
+    }
 
-	std::pair<uint8_t, bool> command;
-	if (m_select)
-	{
-		if (m_target == Target::TARGET_PAD_MEMCARD1)
-		{
-			command = m_pad1.sendCommand(cmd);
-		}
-		else if (m_target == Target::TARGET_PAD_MEMCARD2)
-		{
-			command = m_pad2.sendCommand(cmd);
-		}
-	}
-	else
-	{
-		// No response.
-		command = std::make_pair(0xff, false);
-	}
+    std::pair<uint8_t, bool> command;
+    if (m_select)
+    {
+        if (m_target == Target::TARGET_PAD_MEMCARD1)
+        {
+            command = m_pad1.sendCommand(cmd);
+        }
+        else if (m_target == Target::TARGET_PAD_MEMCARD2)
+        {
+            command = m_pad2.sendCommand(cmd);
+        }
+    }
+    else
+    {
+        // No response.
+        command = std::make_pair(0xff, false);
+    }
 
-	// We're sending 8 bits, one every "baud rate divider" CPU cycles.
-	Cycles transmissionDuration = 8 * m_baudRateDivider;
+    // We're sending 8 bits, one every "baud rate divider" CPU cycles.
+    Cycles transmissionDuration = 8 * m_baudRateDivider;
 
-	m_helperBusTransfer.m_responseByte = command.first;
-	m_helperBusTransfer.m_dsrResponse = command.second;
-	m_helperBusTransfer.m_cyclesRemaining = transmissionDuration;
-	m_busState = BusState::BUS_STATE_TRANSFER;
+    m_helperBusTransfer.m_responseByte = command.first;
+    m_helperBusTransfer.m_dsrResponse = command.second;
+    m_helperBusTransfer.m_cyclesRemaining = transmissionDuration;
+    m_busState = BusState::BUS_STATE_TRANSFER;
 
-	// The DSR pulse follows immediately after the last byte.
-	timeKeeper.setNextSyncDelta(Peripheral::PERIPHERAL_PAD_MEMCARD, transmissionDuration);
+    // The DSR pulse follows immediately after the last byte.
+    timeKeeper.setNextSyncDelta(Peripheral::PERIPHERAL_PAD_MEMCARD, transmissionDuration);
 }
 
 uint32_t PadMemCard::getStat() const
 {
-	uint32_t stat(0x0);
+    uint32_t stat(0x0);
 
-	// TX ready bits 1 and 2.
-	stat |= 5;
-	stat |= (uint32_t)m_rxNotEmpty << 1;
-	// RX parity error should always be 0.
-	stat |= 0 << 3;
-	// Pretend the ack line ( active low ) is always high.
-	stat |= (uint32_t)m_dataSetReadySignal << 7;
-	stat |= (uint32_t)m_interruptLevel << 9;
-	stat |= 0 << 11;
+    // TX ready bits 1 and 2.
+    stat |= 5;
+    stat |= (uint32_t)m_rxNotEmpty << 1;
+    // RX parity error should always be 0.
+    stat |= 0 << 3;
+    // Pretend the ack line ( active low ) is always high.
+    stat |= (uint32_t)m_dataSetReadySignal << 7;
+    stat |= (uint32_t)m_interruptLevel << 9;
+    stat |= 0 << 11;
 
-	return stat;
+    return stat;
 }
 
 void PadMemCard::setMode(uint8_t mode)
 {
-	m_mode = mode;
+    m_mode = mode;
 }
 
 uint16_t PadMemCard::getControl() const
 {
-	uint16_t ctrl(0x0);
+    uint16_t ctrl(0x0);
 
-	ctrl |= (uint16_t)m_transmissionEnabled;
-	ctrl |= (uint16_t)m_select << 1;
-	ctrl |= (uint16_t)m_dsrInterrupt << 12;
-	ctrl |= (uint16_t)m_target << 13;
+    ctrl |= (uint16_t)m_transmissionEnabled;
+    ctrl |= (uint16_t)m_select << 1;
+    ctrl |= (uint16_t)m_dsrInterrupt << 12;
+    ctrl |= (uint16_t)m_target << 13;
 
-	return ctrl;
+    return ctrl;
 }
 
 void PadMemCard::setControl(InterruptState& irqState, uint16_t ctrl)
 {
-	if (ctrl & 0x40)
-	{
-		// Soft reset.
-		m_baudRateDivider = 0x0;
-		m_mode = 0x0;
-		m_select = false;
-		m_target = Target::TARGET_PAD_MEMCARD1;
-		m_interruptLevel = false;
-		m_rxNotEmpty = false;
-		m_busState = BusState::BUS_STATE_IDLE;
-		m_dataSetReadySignal = false;
-	}
-	else
-	{
-		if (ctrl & 0x10)
-		{
-			// Interrupt acknowledge
-			m_interruptLevel = false;
+    if (ctrl & 0x40)
+    {
+        // Soft reset.
+        m_baudRateDivider = 0x0;
+        m_mode = 0x0;
+        m_select = false;
+        m_target = Target::TARGET_PAD_MEMCARD1;
+        m_interruptLevel = false;
+        m_rxNotEmpty = false;
+        m_busState = BusState::BUS_STATE_IDLE;
+        m_dataSetReadySignal = false;
+    }
+    else
+    {
+        if (ctrl & 0x10)
+        {
+            // Interrupt acknowledge
+            m_interruptLevel = false;
 
-			if (m_dataSetReadySignal && m_dsrInterrupt)
-			{
-				// The controllers's "dsrInterrupt" interrupt is not edge
-				// triggered: as long as m_dataSetReadySignal && m_dsrInterrupt is true
-				// it will keep being triggered. If the software attempts to acknowledge
-				// the interrupt in this state, it will re-trigger immediately which will be seen
-				// by the edge-triggered top level interrupt controller.
-				LOG("Gamepad interrupt acknowledge while DSR is active");
+            if (m_dataSetReadySignal && m_dsrInterrupt)
+            {
+                // The controllers's "dsrInterrupt" interrupt is not edge
+                // triggered: as long as m_dataSetReadySignal && m_dsrInterrupt is true
+                // it will keep being triggered. If the software attempts to acknowledge
+                // the interrupt in this state, it will re-trigger immediately which will be seen
+                // by the edge-triggered top level interrupt controller.
+                LOG("Gamepad interrupt acknowledge while DSR is active");
 
-				m_interruptLevel = true;
-				irqState.raiseAssert(Interrupt::INTERRUPT_PAD_MEMCARD);
-			}
-		}
+                m_interruptLevel = true;
+                irqState.raiseAssert(Interrupt::INTERRUPT_PAD_MEMCARD);
+            }
+        }
 
-		bool previousSelect = m_select;
+        bool previousSelect = m_select;
 
-		//m_unknown = ((uint8_t)ctrl) & 0x28;
-		m_transmissionEnabled = ctrl & 1;
-		m_select = (ctrl >> 1) & 1;
-		//m_rxEnabled = (ctrl >> 2) & 1;
-		m_dsrInterrupt = (ctrl >> 12) & 1;
-		m_target = ((ctrl & 0x2000) == 0) ? Target::TARGET_PAD_MEMCARD1 : Target::TARGET_PAD_MEMCARD2;
+        //m_unknown = ((uint8_t)ctrl) & 0x28;
+        m_transmissionEnabled = ctrl & 1;
+        m_select = (ctrl >> 1) & 1;
+        //m_rxEnabled = (ctrl >> 2) & 1;
+        m_dsrInterrupt = (ctrl >> 12) & 1;
+        m_target = ((ctrl & 0x2000) == 0) ? Target::TARGET_PAD_MEMCARD1 : Target::TARGET_PAD_MEMCARD2;
 
-		assert(("dsrInterrupt is enabled while DSR signal is active", !(m_dsrInterrupt && !m_interruptLevel && m_dataSetReadySignal)));
-		assert(("Unsupported gamepad interrupts", !(ctrl & 0xf00)));
+        assert(("dsrInterrupt is enabled while DSR signal is active", !(m_dsrInterrupt && !m_interruptLevel && m_dataSetReadySignal)));
+        assert(("Unsupported gamepad interrupts", !(ctrl & 0xf00)));
 
-		if (!previousSelect && m_select)
-		{
-			m_pad1.setSelect();
-		}
-	}
+        if (!previousSelect && m_select)
+        {
+            m_pad1.setSelect();
+        }
+    }
 }
